@@ -1,3 +1,8 @@
+#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
+#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
+#include "Pods/Target Support Files/Pods-Runner/Pods-Runner.profile.xcconfig"
+#include? "Configs/AppInfo.xcconfig"
+
 // Application-level settings for the Runner target.
 //
 // This may be replaced with something auto-generated from metadata (e.g., pubspec.yaml) in the
@@ -8,7 +13,7 @@
 PRODUCT_NAME = timer
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.timer
+PRODUCT_BUNDLE_IDENTIFIER = com.tigranmatik.timer
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2025 com.example. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2024 com.example. All rights reserved.
