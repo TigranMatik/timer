@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timer/services/pro_service.dart';
 import '../models/habit.dart';
 import '../services/habits_service.dart';
 import '../widgets/edit_habit_dialog.dart';
 import '../widgets/milestone_celebration.dart';
 import '../widgets/create_habit_dialog.dart';
+import '../widgets/upgrade_prompt_dialog.dart';
 
 class HabitsScreen extends StatefulWidget {
   const HabitsScreen({super.key});
@@ -37,7 +39,8 @@ class _HabitsScreenState extends State<HabitsScreen> with TickerProviderStateMix
 
   Future<HabitsService> _initializeServices() async {
     final prefs = await SharedPreferences.getInstance();
-    final service = HabitsService(prefs);
+    final proService = ProService(prefs);
+    final service = HabitsService(prefs, proService);
     await service.initialize();
     return service;
   }
@@ -45,23 +48,41 @@ class _HabitsScreenState extends State<HabitsScreen> with TickerProviderStateMix
   @override
   void dispose() {
     _addButtonController.dispose();
-    // Clear any cached data
-    // ignore: null_argument_to_non_null_type
-    _habitServiceFuture = Future.value(null);
     super.dispose();
   }
 
-  void _showAddHabitSheet() {
+  void _showAddHabitSheet() async {
+    final service = await _habitServiceFuture;
+    
+    if (!service.canAddMoreHabits) {
+      // Show upgrade prompt
+      if (!mounted) return;
+      showDialog(
+        context: context,
+        builder: (context) => UpgradePromptDialog(
+          title: 'Unlock Unlimited Habits',
+          message: "You've reached the free limit of ${service.maxHabits} habits. Upgrade to Flow Pro to create unlimited habits and unlock more features!",
+          onUpgrade: () {
+            Navigator.pop(context);
+            // TODO: Navigate to subscription screen
+          },
+        ),
+      );
+      return;
+    }
+
     showModalBottomSheet(
+      // ignore: use_build_context_synchronously
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (context) => CreateHabitDialog(
         onSave: (habit) async {
-          final service = await _habitServiceFuture;
-          await service.addHabit(habit);
-          setState(() {});
-          HapticFeedback.mediumImpact();
+          final success = await service.addHabit(habit);
+          if (success) {
+            setState(() {});
+            HapticFeedback.mediumImpact();
+          }
         },
       ),
     );
@@ -366,150 +387,139 @@ class _HabitsScreenState extends State<HabitsScreen> with TickerProviderStateMix
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<HabitsService>(
-      future: _habitServiceFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const CupertinoPageScaffold(
-            backgroundColor: Color(0xFF17171A),
-            child: Center(
-              child: CupertinoActivityIndicator(),
-            ),
-          );
-        }
-
-        if (snapshot.hasError) {
-          return CupertinoPageScaffold(
-            backgroundColor: const Color(0xFF17171A),
-            child: Center(
-              child: Text(
-                'Error loading habits',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                ),
-              ),
-            ),
-          );
-        }
-
-        final habitsService = snapshot.data!;
-        final habits = habitsService.habits;
-
-        return CupertinoPageScaffold(
-          backgroundColor: const Color(0xFF17171A),
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFF17171A),
-                  Color(0xFF1E1E23),
-                  Color(0xFF17171A),
-                ],
-              ),
-            ),
-            child: SafeArea(
+    
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Daily Habits',
-                              style: TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white.withOpacity(0.9),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Track your progress',
-                              style: TextStyle(
-                                fontSize: 15,
-                                color: Colors.white.withOpacity(0.5),
-                              ),
-                            ),
-                          ],
-                        ),
-                        GestureDetector(
-                          onTap: _showAddHabitSheet,
-                          child: Container(
-                            width: 40,
-                            height: 40,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: const Color(0xFFE0C1A3).withOpacity(0.1),
-                              border: Border.all(
-                                color: const Color(0xFFE0C1A3).withOpacity(0.3),
-                                width: 1,
-                              ),
-                            ),
-                            child: const Icon(
-                              CupertinoIcons.plus,
-                              color: Color(0xFFE0C1A3),
-                              size: 20,
-                            ),
-                          ),
-                        ),
-                      ],
+                  Text(
+                    'Daily Habits',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withOpacity(0.9),
                     ),
                   ),
-                  Expanded(
-                    child: habits.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  CupertinoIcons.star,
-                                  size: 48,
-                                  color: Colors.white.withOpacity(0.1),
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No Habits Yet',
-                                  style: TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white.withOpacity(0.3),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Add your first habit to start tracking',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.white.withOpacity(0.3),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 20),
-                            itemCount: habits.length,
-                            itemBuilder: (context, index) {
-                              return _buildHabitCard(habits[index]);
-                            },
-                            addAutomaticKeepAlives: false,
-                            addRepaintBoundaries: true,
-                            addSemanticIndexes: false,
-                          ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Track your progress',
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: Colors.white.withOpacity(0.5),
+                    ),
                   ),
                 ],
               ),
             ),
-          ),
-        );
-      },
+            Expanded(
+              child: Stack(
+                children: [
+                  FutureBuilder<HabitsService>(
+                    future: _habitServiceFuture,
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CupertinoActivityIndicator(),
+                        );
+                      }
+
+                      if (snapshot.hasError) {
+                        return Center(
+                          child: Text(
+                            'Error loading habits',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.6),
+                            ),
+                          ),
+                        );
+                      }
+
+                      final habitsService = snapshot.data!;
+                      final habits = habitsService.habits;
+
+                      return habits.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    CupertinoIcons.star,
+                                    size: 48,
+                                    color: Colors.white.withOpacity(0.1),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'No Habits Yet',
+                                    style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white.withOpacity(0.3),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Add your first habit to start tracking',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.white.withOpacity(0.3),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.symmetric(horizontal: 20),
+                              itemCount: habits.length,
+                              itemBuilder: (context, index) {
+                                return _buildHabitCard(habits[index]);
+                              },
+                              addAutomaticKeepAlives: false,
+                              addRepaintBoundaries: true,
+                              addSemanticIndexes: false,
+                            );
+                    },
+                  ),
+                  Positioned(
+                    right: 20,
+                    bottom: MediaQuery.of(context).padding.bottom + 20,
+                    child: GestureDetector(
+                      onTap: _showAddHabitSheet,
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0C1A3),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFFE0C1A3).withOpacity(0.3),
+                              blurRadius: 12,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          CupertinoIcons.plus,
+                          color: Color(0xFF17171A),
+                          size: 24,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 } 

@@ -3,12 +3,24 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/timer_screen.dart';
 import 'screens/stats_screen.dart';
 import 'screens/habits_screen.dart';
+import 'screens/settings_screen.dart';
+import 'services/pro_service.dart';
+import 'services/theme_service.dart';
+import 'widgets/theme_picker.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialize services
+  final prefs = await SharedPreferences.getInstance();
+  final proService = ProService(prefs);
+  final themeService = ThemeService(prefs, proService);
+  
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -17,12 +29,21 @@ void main() {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
+  
   // Lock orientation to portrait mode
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]).then((_) {
-    runApp(const MainApp());
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: proService),
+          ChangeNotifierProvider.value(value: themeService),
+        ],
+        child: const MainApp(),
+      ),
+    );
   });
 }
 
@@ -31,30 +52,26 @@ class MainApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final themeService = Provider.of<ThemeService>(context);
+    final theme = themeService.currentTheme;
+    
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: Colors.black,
-        primaryColor: const Color(0xFF8B7355), // Elegant brown
-        colorScheme: const ColorScheme.dark(
-          primary: Color(0xFF8B7355),
-          secondary: Color(0xFF4A4A4A),
-          surface: Colors.black,
-          background: Colors.black,
+      title: 'Flow',
+      theme: theme.themeData.copyWith(
+        scaffoldBackgroundColor: Colors.transparent,
+        colorScheme: ColorScheme.dark(
+          primary: theme.primaryColor,
+          secondary: theme.accentColor,
+          surface: theme.cardColor,
+          background: theme.primaryColor,
+          onBackground: theme.textColor,
+          onSurface: theme.textColor,
         ),
-        textTheme: const TextTheme(
-          bodyLarge: TextStyle(
-            fontWeight: FontWeight.w400,
-          ),
-          bodyMedium: TextStyle(
-            fontWeight: FontWeight.w300,
-          ),
-        ),
-        pageTransitionsTheme: const PageTransitionsTheme(
-          builders: {
-            TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
-            TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-          },
+        iconTheme: theme.iconTheme,
+        textTheme: theme.themeData.textTheme.apply(
+          bodyColor: theme.textColor,
+          displayColor: theme.textColor,
         ),
       ),
       home: const HomeScreen(),
@@ -117,20 +134,71 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
   }
 
+  void _showThemePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => const ThemePicker(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final themeService = Provider.of<ThemeService>(context);
+    final theme = themeService.currentTheme;
+    
     return Scaffold(
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 400),
-        switchInCurve: Curves.easeOutCubic,
-        switchOutCurve: Curves.easeInCubic,
-        transitionBuilder: (Widget child, Animation<double> animation) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
-        },
-        child: _screens[_currentIndex],
+      backgroundColor: Colors.transparent,
+      extendBody: true,
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: theme.backgroundGradient,
+        ),
+        child: Stack(
+          children: [
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 400),
+              switchInCurve: Curves.easeOutCubic,
+              switchOutCurve: Curves.easeInCubic,
+              transitionBuilder: (Widget child, Animation<double> animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: child,
+                );
+              },
+              child: _screens[_currentIndex],
+            ),
+            if (_currentIndex == 0) // Only show theme button on Habits screen
+              Positioned(
+                top: MediaQuery.of(context).padding.top + 16,
+                right: 16,
+                child: AnimatedOpacity(
+                  opacity: 0.6,
+                  duration: const Duration(milliseconds: 200),
+                  child: GestureDetector(
+                    onTap: _showThemePicker,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: theme.textColor.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: theme.textColor.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Icon(
+                        CupertinoIcons.paintbrush,
+                        color: theme.textColor,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
       bottomNavigationBar: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -138,10 +206,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xFF1C1C1E).withOpacity(0.9),
+              color: theme.navBarColor.withOpacity(0.9),
               border: Border(
                 top: BorderSide(
-                  color: Colors.white.withOpacity(0.1),
+                  color: theme.textColor.withOpacity(0.1),
                   width: 0.5,
                 ),
               ),
@@ -150,8 +218,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               currentIndex: _currentIndex,
               onTap: _onTabChanged,
               backgroundColor: Colors.transparent,
-              activeColor: const Color(0xFF8B7355),
-              inactiveColor: CupertinoColors.systemGrey,
+              activeColor: theme.accentColor,
+              inactiveColor: theme.textColor.withOpacity(0.4),
               iconSize: 24,
               border: null,
               items: const [
@@ -177,30 +245,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const CupertinoPageScaffold(
-      backgroundColor: Colors.black,
-      navigationBar: CupertinoNavigationBar(
-        middle: Text('Settings'),
-        backgroundColor: Colors.black,
-        border: null,
-      ),
-      child: SafeArea(
-        child: Center(
-          child: Text(
-            'Settings Screen',
-            style: TextStyle(color: Colors.white),
           ),
         ),
       ),

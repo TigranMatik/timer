@@ -1,21 +1,25 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timer/services/pro_service.dart';
 import '../models/habit.dart';
 import 'package:flutter/foundation.dart';
 
 class HabitsService {
   final SharedPreferences _prefs;
+  final ProService _proService;
   List<Habit> _habits = [];
   bool _isInitialized = false;
   bool _isDirty = false;
   static const String _habitsKey = 'habits';
 
-  HabitsService(this._prefs);
+  HabitsService(this._prefs, this._proService);
 
   bool get isInitialized => _isInitialized;
   List<Habit> get habits => List.unmodifiable(_habits);
   int get totalHabits => _habits.length;
   int get completedHabitsToday => _habits.where((h) => h.isCompletedToday).length;
+  bool get canAddMoreHabits => _proService.isPro || totalHabits < _proService.getMaxHabits();
+  int get maxHabits => _proService.getMaxHabits();
 
   double get todayCompletionRate {
     if (_habits.isEmpty) return 0.0;
@@ -28,8 +32,16 @@ class HabitsService {
     try {
       final habitsJson = _prefs.getString(_habitsKey);
       if (habitsJson != null) {
-        final List<dynamic> decoded = json.decode(habitsJson);
-        _habits = decoded.map((json) => Habit.fromJson(json)).toList();
+        // Initialize with empty list if data is invalid
+        _habits = [];
+        
+        final dynamic decoded = json.decode(habitsJson);
+        if (decoded is List) {
+          _habits = decoded
+              .whereType<Map<String, dynamic>>()
+              .map((json) => Habit.fromJson(json))
+              .toList();
+        }
         
         // Check completion status for each habit
         final now = DateTime.now();
@@ -46,19 +58,26 @@ class HabitsService {
             }
           }
         }
+      } else {
+        _habits = [];
       }
     } catch (e) {
-      debugPrint('Error loading habits: $e');
+      debugPrint('Error initializing habits: $e');
       _habits = [];
     }
     
     _isInitialized = true;
   }
 
-  Future<void> addHabit(Habit habit) async {
+  Future<bool> addHabit(Habit habit) async {
+    if (!canAddMoreHabits) {
+      return false;
+    }
+    
     _habits.add(habit);
     _isDirty = true;
     await _saveHabits();
+    return true;
   }
 
   Future<void> updateHabit(String id, Habit updatedHabit) async {
@@ -89,8 +108,9 @@ class HabitsService {
     if (!_isDirty) return;
     
     try {
-      final habitsJson = _habits.map((h) => h.toJson()).toList();
-      await _prefs.setString(_habitsKey, json.encode(habitsJson));
+      final List<Map<String, dynamic>> habitsJson = _habits.map((h) => h.toJson()).toList();
+      final String encoded = json.encode(habitsJson);
+      await _prefs.setString(_habitsKey, encoded);
       _isDirty = false;
     } catch (e) {
       debugPrint('Error saving habits: $e');

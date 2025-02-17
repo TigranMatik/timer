@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:provider/provider.dart';
+import '../services/pro_service.dart';
 import '../services/timer_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/habits_service.dart';
 import '../models/habit.dart';
 import 'dart:math' as math;
+import '../services/theme_service.dart';
 
 class StatsScreen extends StatefulWidget {
   final VoidCallback onTimerTap;
@@ -22,6 +25,8 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
   late AnimationController _animationController;
   late List<Animation<double>> _cardAnimations;
   late Future<(HabitsService, TimerService)> _servicesFuture;
+  HabitsService? _habitsService;
+  TimerService? _timerService;
   
   @override
   void initState() {
@@ -43,15 +48,42 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
     });
     
     _animationController.forward();
-    _servicesFuture = _initializeServices();
+    _initializeServices();
   }
 
-  Future<(HabitsService, TimerService)> _initializeServices() async {
-    final prefs = await SharedPreferences.getInstance();
-    final habitsService = HabitsService(prefs);
-    final timerService = TimerService(prefs);
-    await habitsService.initialize();
-    return (habitsService, timerService);
+  Future<void> _initializeServices() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!mounted) return;
+
+      final proService = Provider.of<ProService>(context, listen: false);
+      
+      // Initialize services
+      final habitsService = HabitsService(prefs, proService);
+      final timerService = TimerService(prefs);
+      
+      // Initialize habits service first
+      await habitsService.initialize();
+      
+      // Load timer service data
+      timerService.loadSessions();
+      
+      if (mounted) {
+        setState(() {
+          _habitsService = habitsService;
+          _timerService = timerService;
+        });
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Error initializing services: $e');
+      debugPrint('Stack trace: $stackTrace');
+      if (mounted) {
+        setState(() {
+          _habitsService = null;
+          _timerService = null;
+        });
+      }
+    }
   }
 
   @override
@@ -72,68 +104,81 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<(HabitsService, TimerService)>(
-      future: _servicesFuture,
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const CupertinoPageScaffold(
-            backgroundColor: Color(0xFF17171A),
-            child: Center(
-              child: CupertinoActivityIndicator(),
+    final theme = Provider.of<ThemeService>(context).currentTheme;
+    
+    if (_habitsService == null || _timerService == null) {
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CupertinoActivityIndicator(),
+                if (_habitsService == null && _timerService == null) ...[
+                  const SizedBox(height: 16),
+                  Text(
+                    'Error loading stats',
+                    style: TextStyle(
+                      color: theme.textColor.withOpacity(0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  CupertinoButton(
+                    onPressed: _initializeServices,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ],
             ),
-          );
-        }
-
-        if (snapshot.hasError) {
-          return CupertinoPageScaffold(
-            backgroundColor: const Color(0xFF17171A),
-            child: Center(
-              child: Text(
-                'Error loading stats',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.6),
-                ),
-              ),
-            ),
-          );
-        }
-
-        final (habitsService, timerService) = snapshot.data!;
-        final topStreaks = habitsService.getTopStreaks();
-        final completionRate = (habitsService.todayCompletionRate * 100).toInt();
-        final totalHabits = habitsService.totalHabits;
-        final completedToday = habitsService.completedHabitsToday;
-        final totalFocusTime = timerService.totalFocusTime;
-        final averageSessionDuration = timerService.averageSessionDuration;
-
-        return CupertinoPageScaffold(
-          backgroundColor: const Color(0xFF17171A),
-          navigationBar: const CupertinoNavigationBar(
-            middle: Text(
-              'Statistics',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            backgroundColor: Color(0xFF17171A),
-            border: null,
           ),
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Color(0xFF17171A),
-                  Color(0xFF1E1E23),
-                  Color(0xFF17171A),
+        ),
+      );
+    }
+
+    final habitsService = _habitsService!;
+    final timerService = _timerService!;
+    final topStreaks = habitsService.getTopStreaks();
+    final completionRate = (habitsService.todayCompletionRate * 100).toInt();
+    final totalHabits = habitsService.totalHabits;
+    final completedToday = habitsService.completedHabitsToday;
+    final totalFocusTime = timerService.totalFocusTime;
+    final averageSessionDuration = timerService.averageSessionDuration;
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Statistics',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600,
+                      color: theme.textColor.withOpacity(0.9),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Track your progress',
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: theme.textColor.withOpacity(0.5),
+                    ),
+                  ),
                 ],
               ),
             ),
-            child: SafeArea(
+            Expanded(
               child: ListView(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
                 children: [
                   // Habits Section
                   Text(
@@ -141,7 +186,7 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w600,
-                      color: Colors.white.withOpacity(0.9),
+                      color: theme.textColor.withOpacity(0.9),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -153,7 +198,7 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
                           value: '$completionRate%',
                           progress: completionRate / 100,
                           icon: CupertinoIcons.chart_bar_fill,
-                          iconColor: const Color(0xFFE0C1A3),
+                          iconColor: theme.accentColor,
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -163,7 +208,7 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
                           value: '$completedToday/$totalHabits',
                           progress: totalHabits > 0 ? completedToday / totalHabits : 0,
                           icon: CupertinoIcons.checkmark_circle_fill,
-                          iconColor: const Color(0xFFE0C1A3),
+                          iconColor: theme.accentColor,
                         ),
                       ),
                     ],
@@ -180,7 +225,7 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w600,
-                      color: Colors.white.withOpacity(0.9),
+                      color: theme.textColor.withOpacity(0.9),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -190,9 +235,9 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
                         child: _buildStatCard(
                           title: 'Total Focus Time',
                           value: _formatDuration(totalFocusTime),
-                          progress: math.min(1.0, totalFocusTime.inHours / 8), // 8 hours daily goal
+                          progress: math.min(1.0, totalFocusTime.inHours / 8),
                           icon: CupertinoIcons.timer,
-                          iconColor: const Color(0xFFE0C1A3),
+                          iconColor: theme.accentColor,
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -200,9 +245,9 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
                         child: _buildStatCard(
                           title: 'Avg. Session',
                           value: _formatDuration(averageSessionDuration),
-                          progress: math.min(1.0, averageSessionDuration.inMinutes / 60), // 1 hour session goal
+                          progress: math.min(1.0, averageSessionDuration.inMinutes / 60),
                           icon: CupertinoIcons.time,
-                          iconColor: const Color(0xFFE0C1A3),
+                          iconColor: theme.accentColor,
                         ),
                       ),
                     ],
@@ -214,9 +259,9 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
                         child: _buildStatCard(
                           title: 'Total Sessions',
                           value: timerService.totalSessions.toString(),
-                          progress: math.min(1.0, timerService.totalSessions / 100), // Goal of 100 sessions
+                          progress: math.min(1.0, timerService.totalSessions / 100),
                           icon: CupertinoIcons.number,
-                          iconColor: const Color(0xFFE0C1A3),
+                          iconColor: theme.accentColor,
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -224,9 +269,9 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
                         child: _buildStatCard(
                           title: 'Longest Session',
                           value: _formatDuration(timerService.longestSession),
-                          progress: math.min(1.0, timerService.longestSession.inMinutes / 120), // 2 hour max
+                          progress: math.min(1.0, timerService.longestSession.inMinutes / 120),
                           icon: CupertinoIcons.chart_bar_alt_fill,
-                          iconColor: const Color(0xFFE0C1A3),
+                          iconColor: theme.accentColor,
                         ),
                       ),
                     ],
@@ -235,9 +280,9 @@ class _StatsScreenState extends State<StatsScreen> with SingleTickerProviderStat
                 ],
               ),
             ),
-          ),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 

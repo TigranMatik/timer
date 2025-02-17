@@ -34,10 +34,19 @@ class TimerService {
 
   // Load timer names from storage
   void _loadTimerNames() {
-    final String? namesJson = _prefs.getString(_timerNamesKey);
-    if (namesJson != null) {
-      final List<dynamic> decoded = json.decode(namesJson);
-      _timerNames = Set<String>.from(decoded);
+    try {
+      final String? namesJson = _prefs.getString(_timerNamesKey);
+      if (namesJson != null) {
+        final dynamic decoded = json.decode(namesJson);
+        if (decoded is List) {
+          _timerNames = Set<String>.from(decoded);
+        } else if (decoded is Map) {
+          _timerNames = Set<String>.from(decoded.values);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading timer names: $e');
+      _timerNames = {};
     }
   }
 
